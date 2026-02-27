@@ -7,7 +7,10 @@ import (
 	"image"
 	_ "image/png"
 	"log"
+	"math"
+	"math/rand"
 	"os"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -16,15 +19,10 @@ import (
 //go:embed assets/*
 var assetsFS embed.FS
 
-const (
-	SpriteWidth  = 32
-	SpriteHeight = 32
-)
-
 // Physical Row Order of the PNG files
 var animalRowMap = map[string][]string{
 	"Bird":  {"Idle", "Fly", "Death"},
-	"Bunny": {"Idle", "Walk/Jump", "Hit", "Death"},
+	"Bunny": {"Idle", "Jump", "Hit", "Death"},
 	"Fox":   {"Idle", "Walk", "Jump", "Attack", "Hit", "Death"},
 	"Wolf":  {"Idle", "Walk", "Jump", "Attack", "Attack2", "Howl", "Hit", "Death"},
 	"Boar":  {"Idle", "Walk", "Jump", "Attack", "Hit", "Death"},
@@ -52,6 +50,12 @@ type Pet struct {
 	currentIdx   int
 	currentFrame int
 	ticks        int
+	// Dimensions
+	w, h int
+	// Movement fields
+	posX, posY float64
+	facingLeft bool
+	floatSeed  float64 // Used for bird hover oscillation
 }
 
 type Game struct {
@@ -66,6 +70,7 @@ type Game struct {
 
 func (g *Game) Update() error {
 	for _, p := range g.pets {
+		// 1. Handle Animation Timing
 		p.ticks++
 		if p.ticks > 10 {
 			p.ticks = 0
@@ -77,8 +82,41 @@ func (g *Game) Update() error {
 				p.currentIdx = (p.currentIdx + 1) % len(p.enabledAnims)
 			}
 		}
+
+		// 2. Handle Horizontal Movement
+		curAnim := p.enabledAnims[p.currentIdx]
+		if curAnim == "Walk" || curAnim == "Jump" || curAnim == "Fly" {
+			moveSpeed := 1.0
+			if curAnim == "Jump" || curAnim == "Fly" {
+				moveSpeed = 1.6
+			}
+
+			if p.facingLeft {
+				p.posX -= moveSpeed
+			} else {
+				p.posX += moveSpeed
+			}
+
+			// Boundary Check (Bounce back)
+			scaledSpriteW := float64(p.w) * g.cfg.ScalingFactor
+			if p.posX <= 0 {
+				p.posX = 0
+				p.facingLeft = false
+			} else if p.posX >= float64(g.winW)-scaledSpriteW {
+				p.posX = float64(g.winW) - scaledSpriteW
+				p.facingLeft = true
+			}
+		}
+
+		// 3. Bird "Hover" effect
+		if p.species == "Bird" {
+			p.floatSeed += 0.05
+			// Adds a small up/down oscillation to the random height
+			p.posY += math.Sin(p.floatSeed) * 0.2
+		}
 	}
 
+	// Window Dragging
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		g.isDragging = true
 		g.dragX, g.dragY = ebiten.CursorPosition()
@@ -100,8 +138,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	bgOp.GeoM.Scale(g.bgScale, g.bgScale)
 	screen.DrawImage(g.bgImg, bgOp)
 
-	spacing := float64(g.winW) / float64(len(g.pets)+1)
-	for i, p := range g.pets {
+	for _, p := range g.pets {
 		animName := p.enabledAnims[p.currentIdx]
 
 		row := -1
@@ -115,15 +152,22 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			continue
 		}
 
-		rect := image.Rect(p.currentFrame*SpriteWidth, row*SpriteHeight, (p.currentFrame+1)*SpriteWidth, (row+1)*SpriteHeight)
+		rect := image.Rect(p.currentFrame*p.w, row*p.h, (p.currentFrame+1)*p.w, (row+1)*p.h)
 
 		op := &ebiten.DrawImageOptions{}
+
+		// 1. Flip
+		if p.facingLeft {
+			op.GeoM.Scale(-1, 1)
+			op.GeoM.Translate(float64(p.w), 0)
+		}
+
+		// 2. Scale
 		op.GeoM.Scale(g.cfg.ScalingFactor, g.cfg.ScalingFactor)
 
-		dx := (spacing * float64(i+1)) - (float64(SpriteWidth)*g.cfg.ScalingFactor)/2
-		dy := float64(g.winH) - (float64(SpriteHeight) * g.cfg.ScalingFactor)
+		// 3. Position
+		op.GeoM.Translate(p.posX, p.posY)
 
-		op.GeoM.Translate(dx, dy)
 		screen.DrawImage(p.spriteImg.SubImage(rect).(*ebiten.Image), op)
 	}
 }
@@ -131,11 +175,16 @@ func (g *Game) Draw(screen *ebiten.Image) {
 func (g *Game) Layout(w, h int) (int, int) { return g.winW, g.winH }
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
+
 	if len(os.Args) < 2 {
 		log.Fatal("Usage: go run main.go config.json")
 	}
 
-	data, _ := os.ReadFile(os.Args[1])
+	data, err := os.ReadFile(os.Args[1])
+	if err != nil {
+		log.Fatal(err)
+	}
 	var cfg Config
 	json.Unmarshal(data, &cfg)
 
@@ -147,15 +196,39 @@ func main() {
 	bgScale := float64(finalH) / float64(img.Bounds().Dy())
 	finalW := int(float64(img.Bounds().Dx()) * bgScale)
 
+	spacing := float64(finalW) / float64(len(cfg.ActiveAnimals)+1)
+
 	var pets []*Pet
-	for _, entry := range cfg.ActiveAnimals {
+	for i, entry := range cfg.ActiveAnimals {
 		sB, err := assetsFS.ReadFile("assets/sprites/Mini" + entry.Name + ".png")
 		if err != nil {
+			log.Printf("Could not find sprite for %s", entry.Name)
 			continue
 		}
 		sImg, _, _ := image.Decode(bytes.NewReader(sB))
 
-		// Handle "all" keyword
+		pWidth, pHeight := 32, 32
+		if entry.Name == "Bird" {
+			pWidth, pHeight = 16, 16
+		}
+
+		// Calculate Y Position
+		var startY float64
+		scaledH := float64(pHeight) * cfg.ScalingFactor
+		if entry.Name == "Bird" {
+			// Random height between top and roughly 20px above the ground
+			minY := 5.0
+			maxY := float64(finalH) - scaledH - 20.0
+			if maxY <= minY {
+				startY = minY
+			} else {
+				startY = minY + rand.Float64()*(maxY-minY)
+			}
+		} else {
+			// Grounded
+			startY = float64(finalH) - scaledH
+		}
+
 		chosenAnims := entry.Animations
 		if len(chosenAnims) == 1 && chosenAnims[0] == "all" {
 			chosenAnims = animalRowMap[entry.Name]
@@ -165,6 +238,11 @@ func main() {
 			species:      entry.Name,
 			spriteImg:    ebiten.NewImageFromImage(sImg),
 			enabledAnims: chosenAnims,
+			w:            pWidth,
+			h:            pHeight,
+			posX:         (spacing * float64(i+1)) - (float64(pWidth)*cfg.ScalingFactor)/2,
+			posY:         startY,
+			floatSeed:    rand.Float64() * 10,
 		})
 	}
 
