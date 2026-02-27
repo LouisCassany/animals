@@ -1,0 +1,28 @@
+{
+  "scaling_factor": 2.5,
+  "target_height": 80,
+  "active_animals": [
+    {
+      "name": "Fox",
+      "animations": ["Idle", "Walk", "Jump"]
+    },
+    {
+      "name": "Wolf",
+      "animations": ["all"]
+    },
+    {
+      "name": "Bear",
+      "animations": ["Roar", "Idle"]
+    }
+  ],
+  "library": {
+    "Bird": { "Idle": 4, "Fly": 4, "Death": 3 },
+    "Bunny": { "Idle": 4, "Walk/Jump": 4, "Hit": 2, "Death": 3 },
+    "Fox": { "Idle": 4, "Walk": 4, "Jump": 3, "Attack": 6, "Hit": 2, "Death": 4 },
+    "Wolf": { "Idle": 4, "Walk": 6, "Jump": 4, "Attack": 5, "Attack2": 5, "Howl": 7, "Hit": 2, "Death": 4 },
+    "Boar": { "Idle": 4, "Walk": 4, "Jump": 3, "Attack": 5, "Hit": 2, "Death": 4 },
+    "Deer": { "Idle": 4, "Walk": 4, "Jump": 3, "Attack": 5, "Hit": 2, "Death": 4 },
+    "Deer2": { "Idle": 4, "Walk": 4, "Jump": 3, "Attack": 5, "Attack2": 7, "Hit": 2, "Death": 4 },
+    "Bear": { "Idle": 4, "Walk": 6, "Jump": 3, "Attack": 6, "Attack2": 5, "Roar": 10, "Hit": 2, "Death": 4 }
+  }
+}
