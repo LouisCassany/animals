@@ -322,7 +322,7 @@ func main() {
 	sw, sh := ebiten.Monitor().Size()
 	ebiten.SetWindowPosition((sw-finalW)/2, sh-finalH-60)
 
-	if err := ebiten.RunGameWithOptions(game, &ebiten.RunGameOptions{ScreenTransparent: true}); err != nil {
+	if err := ebiten.RunGameWithOptions(game, &ebiten.RunGameOptions{ScreenTransparent: true, InitUnfocused: false}); err != nil {
 		log.Fatal(err)
 	}
 }
